@@ -1,0 +1,14 @@
+{
+  "targets": {
+    "clannerzzz": {
+      "hosting": {
+        "app": [
+          "clannerzzz"
+        ]
+      }
+    }
+  },
+  "projects": {
+    "default": "clannerzzz"
+  }
+}

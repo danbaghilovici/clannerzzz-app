@@ -5,15 +5,20 @@ import { FormsModule } from '@angular/forms';
 import { IonicModule } from '@ionic/angular';
 
 import { FolderPageRoutingModule } from './folder-routing.module';
-
+import { AngularFireStorageModule , BUCKET} from '@angular/fire/compat/storage';
 import { FolderPage } from './folder.page';
+import {getStorage, provideStorage} from '@angular/fire/storage';
 
 @NgModule({
+  providers:[
+    { provide: BUCKET, useValue: 'clannerzzz.appspot.com' }
+  ],
   imports: [
     CommonModule,
     FormsModule,
     IonicModule,
-    FolderPageRoutingModule
+    FolderPageRoutingModule,
+    AngularFireStorageModule
   ],
   declarations: [FolderPage]
 })
