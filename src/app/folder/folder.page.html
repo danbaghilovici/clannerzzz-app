@@ -17,10 +17,18 @@
   <div id="container">
     <strong class="capitalize">{{ folder }}</strong>
     <p>Explore <a target="_blank" rel="noopener noreferrer" href="https://ionicframework.com/docs/components">UI Components test</a></p>
-    <ul>
-      <li *ngFor="let file of (files|async)">
-        <ion-button (click)="onAudioClick(file)">{{file.name}}</ion-button>
-      </li>
-    </ul>
+    <!-- List of Text Items -->
+    <ion-list>
+      <ion-item lines="full" *ngFor="let file of (availableAudioFiles|async)">
+
+        <ion-button slot="start" [disabled]="!file.localRef">
+          <ion-icon slot="icon-only" name="play"></ion-icon>
+        </ion-button>
+        <ion-label>{{file.remoteRef.name}}</ion-label>
+        <ion-button slot="end" [disabled]="file.localRef" (click)="">
+          <ion-icon slot="icon-only" name="cloud-download"></ion-icon>
+        </ion-button>
+      </ion-item>
+    </ion-list>
   </div>
 </ion-content>
