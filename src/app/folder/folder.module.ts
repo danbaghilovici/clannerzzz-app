@@ -13,6 +13,7 @@ import {File} from '@awesome-cordova-plugins/file/ngx';
 import {Media} from '@awesome-cordova-plugins/media/ngx';
 
 
+
 @NgModule({
   providers:[
     { provide: BUCKET, useValue: 'clannerzzz.appspot.com' },

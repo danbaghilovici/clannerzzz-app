@@ -1,27 +1,30 @@
-import {Component, OnInit} from '@angular/core';
+import {ChangeDetectorRef, Component, OnInit} from '@angular/core';
 import {AngularFireStorage} from '@angular/fire/compat/storage';
 import {ActivatedRoute} from '@angular/router';
 // import { FileEntry} from '@awesome-cordova-plugins/file/ngx';
 import {Platform} from '@ionic/angular';
 import {HttpClient} from '@angular/common/http';
-import {BehaviorSubject, from, Observable} from 'rxjs';
+import {BehaviorSubject, from, Observable, of, Subject, Subscription} from 'rxjs';
 // import {getDownloadURL} from "@angular/fire/storage";
 // import {firebaseApp$} from "@angular/fire/app";
 import Reference from 'firebase/compat/index';
-import {Directory, FileInfo, Filesystem, ReaddirResult, WriteFileResult} from '@capacitor/filesystem';
 
-import {switchMap} from 'rxjs/operators';
+import {catchError, switchMap} from 'rxjs/operators';
 // import {NativeAudio} from '@ionic-native/native-audio/ngx';
-import {File, FileEntry} from '@awesome-cordova-plugins/file/ngx';
-import {Media, MediaObject} from '@awesome-cordova-plugins/media/ngx';
-
+import {Entry, File, FileEntry} from '@awesome-cordova-plugins/file/ngx';
+import {Media, MEDIA_STATUS, MediaObject} from '@awesome-cordova-plugins/media/ngx';
+import {Share} from '@capacitor/share';
 
 // @ts-ignore
 interface AudioFile {
   // @ts-ignore
   remoteRef: Reference;
-  localRef?: FileEntry;
+  localRef?: Entry;
   isDownloading: boolean;
+  audioStatus$?: Observable<MEDIA_STATUS>;
+  audioObject?: MediaObject;
+  audioSub?: Subscription;
+  audioIntStatus?: BehaviorSubject<MEDIA_STATUS>;
 }
 
 
@@ -31,6 +34,7 @@ interface AudioFile {
   styleUrls: ['./folder.page.scss'],
 })
 export class FolderPage implements OnInit {
+  // this will also serve as the local dir name
   // eslint-disable-next-line @typescript-eslint/naming-convention
   private static FIREBASE_FOLDER_AUDIOS = 'audios';
   public folder: string;
@@ -46,78 +50,41 @@ export class FolderPage implements OnInit {
               private fbStorage: AngularFireStorage,
               private platform: Platform,
               private media: Media,
-              private file: File) {
+              private file: File,
+              private changeRef: ChangeDetectorRef) {
   }
 
   ngOnInit() {
     this.folder = this.activatedRoute.snapshot.paramMap.get('id');
     this.platform.ready().then(() => {
       console.log('platform ready');
-      this.getAvailableAudios().subscribe(() => {
-        console.log('gata', this.availableAudioFiles.getValue());
-      }, (err) => {
-        console.error('err', err);
-      });
+      this.getRemoteAvailableAudios()
+        .pipe(switchMap(() => this.getLocalAvailableAudios()))
+        .subscribe(value => {
+          console.log('files ready', this.availableAudioFiles.getValue());
+        }, (error) => {
+          console.error(error);
+        });
 
-      // // @ts-ignore
-      // let items: Reference = null;
-      // // @ts-ignore
-      // ref.list()
-      //   .pipe(switchMap((value, index) => {
-      //     console.log('received list', value);
-      //     // @ts-ignore
-      //     items = value.items.pop();
-      //     return from(items.getDownloadURL());
-      //   }))
-      //   .pipe(switchMap((links) => this.getBlob(links)))
-      //   .pipe(switchMap((b) => this.writeAudioFileCordova(items.name, b)))
-      //   .subscribe(() => {
-      //   }, (err) => {
-      //     console.log('erroare');
-      //     console.error(err);
-      //   }, () => {
-      //     this.readFilesDirCordova();
-      //   });
     });
-
-
   }
 
-  public onAudioClick(file) {
-    console.log('clicked', file);
-    try {
-      const audio: MediaObject = this.media.create(file.fullPath);
-      audio.play();
-    } catch (err) {
-      console.error(err);
-    }
-
-  }
 
   public writeAudioFileCordova(name, datas: Blob): Observable<FileEntry> {
-    return from(this.file.writeFile(this.file.cacheDirectory, name, datas, {replace: true}));
+    console.log('received blob', name, datas);
+    return from(this.file.writeFile(this.file.externalDataDirectory+'/'+FolderPage.FIREBASE_FOLDER_AUDIOS, name, datas, {replace: true}));
   }
-
-  // public readFilesDirCordova(): void {
-  //   console.log('reading dir');
-  //   this.file.listDir(this.file.cacheDirectory, '').then((resp: FileEntry[]) => {
-  //     console.log(resp);
-  //     this.availableAudioFiles.next(resp);
-  //   }).catch(err => {
-  //     console.error(err);
-  //   });
-  // }
 
 
   public getBlob(src: any): Observable<Blob> {
-    console.log('received link');
+    console.log('received link', src);
     return this.http.get(src,
       {
         responseType: 'blob',
       });
   }
 
-  private getAvailableAudios(): Observable<void> {
+  private getRemoteAvailableAudios(): Observable<AudioFile[]> {
     const fbStorageRef = this.fbStorage.ref(FolderPage.FIREBASE_FOLDER_AUDIOS);
     // @ts-ignore
     return fbStorageRef.list().pipe(switchMap((value, index) => {
@@ -125,30 +92,149 @@ export class FolderPage implements OnInit {
       const res: AudioFile[] = [];
       for (const item of value.items) {
         console.log(item);
-        const newAudioItem: AudioFile = {remoteRef: item, localRef: null, isDownloading: false};
+        const newAudioItem: AudioFile = {
+          remoteRef: item,
+          localRef: null,
+          isDownloading: false,
+          audioStatus$: null,
+          audioObject: null,
+          audioSub: null,
+          audioIntStatus: new BehaviorSubject(MEDIA_STATUS.NONE)
+        };
         res.push(newAudioItem);
       }
       this.availableAudioFiles.next(res);
-      console.log('set data', this.availableAudioFiles.getValue());
+      return of(res);
     }));
   }
 
-  private onDownloadAudioFileClicked(file: AudioFile) {
+  private getLocalAvailableAudios(): Observable<void> {
+    return from(this.file.checkDir(this.file.externalDataDirectory,FolderPage.FIREBASE_FOLDER_AUDIOS))
+      .pipe(catchError(err => of(false)))
+      .pipe(switchMap((value)=> {
+        console.log(value);
+        return !value ? from(this.file.createDir(this.file.externalDataDirectory, FolderPage.FIREBASE_FOLDER_AUDIOS, true)) : of({});
+      }))
+      .pipe(switchMap((value)=> {
+        console.log(value);
+        return from(this.file.listDir(this.file.externalDataDirectory, FolderPage.FIREBASE_FOLDER_AUDIOS));
+      }))
+      .pipe(switchMap((value) => {
+        console.log('local files', value);
+        return this.setLocalAvailableAudios(value);
+      })).pipe(catchError(err=>{
+        console.log(err);
+        return of();
+      }));
+  }
+
+  private setLocalAvailableAudios(files: Entry[]): Observable<any> {
+    for (const audioFile of this.availableAudioFiles.getValue()) {
+      audioFile.localRef = files.filter(value => value.name === audioFile.remoteRef.name).pop() || null;
+    }
+    return of([]);
+  }
+
+  private onDownloadAudioFileClicked(file: AudioFile): Observable<any> {
+    console.log('clicked', file);
     if (!file.remoteRef) {
       //err
       return null;
     }
-    if (file.isDownloading){
+    if (file.isDownloading) {
       //err
       return null;
     }
+    console.log('starting');
     file.isDownloading = true;
-    this.getBlob(file.remoteRef.getDownloadURL())
+    from(file.remoteRef.getDownloadURL()).pipe(switchMap((value) => {
+      console.log(value);
+      return this.getBlob(value);
+    }))
       .pipe(switchMap((value) => this.writeAudioFileCordova(file.remoteRef.name, value)))
-      .subscribe()
+      .pipe(switchMap((value, index) => {
+        console.log('file downloaded');
+        return of(value);
+      })).subscribe((value) => {
+      console.log('ok');
+      file.localRef = value;
+      file.isDownloading = false;
+    }, (error) => {
+      console.log(error);
+      file.localRef = null;
+      file.isDownloading = false;
+    });
   }
 
-  private setAudioFileLocalSrc(file: AudioFile) {
+
+  private onPlayAudioFileClicked(file: AudioFile, index: number) {
+    console.log(file);
+    this.loadFile(file);
+    file.audioIntStatus.next(2);
+    file.audioObject.onSuccess.subscribe(suc => {
+      console.log('suc', suc);
+      file.audioIntStatus.next(4);
+      console.log('suc', file.audioIntStatus.getValue());
+    });
+    file.audioObject.play();
+    file.audioSub = file.audioStatus$.subscribe(status => {
+      console.log('status', status);
+      file.audioIntStatus.next(status);
+      console.log(file.audioIntStatus.getValue() + '');
+      // this.availableAudioFiles.getValue()[index].audioIntStatus.next(status);
+      this.changeRef.detectChanges();
+
+    }, (error) => {
+      console.error('err');
+    }, () => {
+      console.log('ceva');
+    });
+
+    console.log('', file);
 
   }
+
+  private loadFile(file: AudioFile) {
+    if (file.audioObject === null) {
+      file.audioObject = this.media.create(file.localRef.nativeURL);
+    }
+    if (file.audioStatus$ === null) {
+      file.audioStatus$ = file.audioObject.onStatusUpdate;
+
+    }
+    console.log(file);
+
+  }
+
+  private releaseAudioFile(file: AudioFile) {
+    file.audioObject.release();
+    file.audioObject = null;
+    file.audioSub.unsubscribe();
+    file.audioStatus$ = null;
+  }
+
+  private getAudioFileStatus(file: AudioFile): MEDIA_STATUS {
+    if (!file.audioObject) {
+      return MEDIA_STATUS.NONE;
+    }
+    return file.audioIntStatus.getValue();
+  }
+
+  public onShare(selectedFile: AudioFile) {
+    // this.file.read
+    // from(this.file.copyFile(file.localRef.name, this.file.externalDataDirectory, file.localRef.name, this.file.externalCacheDirectory))
+    return from(Share.share({
+      title: 'See cool stuff',
+      text: 'Reenviado desde la app de CLANNERZZZ',
+      url: selectedFile.localRef.nativeURL,
+      dialogTitle: 'Share with buddies',
+    })).subscribe(data=>{
+      console.log('asd');
+    },(error)=>{
+      console.error(error);
+    });
+
+  }
+
+
 }

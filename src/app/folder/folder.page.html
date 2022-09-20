@@ -14,20 +14,26 @@
     </ion-toolbar>
   </ion-header>
 
-  <div id="container">
-    <strong class="capitalize">{{ folder }}</strong>
-    <p>Explore <a target="_blank" rel="noopener noreferrer" href="https://ionicframework.com/docs/components">UI Components test</a></p>
+  <div >
     <!-- List of Text Items -->
     <ion-list>
-      <ion-item lines="full" *ngFor="let file of (availableAudioFiles|async)">
+      <ion-item lines="full" *ngFor="let file of (availableAudioFiles|async);let i = index">
 
-        <ion-button slot="start" [disabled]="!file.localRef">
-          <ion-icon slot="icon-only" name="play"></ion-icon>
+        <ion-button slot="start" shape="round" [disabled]="!file.localRef || file.isDownloading" (click)="onPlayAudioFileClicked(file,i)">
+          <ion-icon slot="icon-only"  name="{{(file.audioIntStatus|async)===2?'pause':'play'}}"></ion-icon>
         </ion-button>
-        <ion-label>{{file.remoteRef.name}}</ion-label>
-        <ion-button slot="end" [disabled]="file.localRef" (click)="">
+        <ion-label>
+          <h2 >{{file.remoteRef.name}}</h2>
+          <p class="ion-text-wrap"><em>"Y me mandas el sticker, eres subnormal?"</em></p>
+          <p>{{(file.audioIntStatus|async)+''}}</p>
+        </ion-label>
+        <ion-button  slot="end" [disabled]="file.localRef" (click)="onDownloadAudioFileClicked(file)" *ngIf="!file.isDownloading">
           <ion-icon slot="icon-only" name="cloud-download"></ion-icon>
         </ion-button>
+        <ion-button  slot="end"  (click)="onShare(file)">
+          <ion-icon slot="icon-only" name="share"></ion-icon>
+        </ion-button>
+        <ion-spinner *ngIf="file.isDownloading"  name="crescent"></ion-spinner>
       </ion-item>
     </ion-list>
   </div>
