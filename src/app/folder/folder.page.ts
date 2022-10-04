@@ -8,8 +8,9 @@ import {BehaviorSubject, from, Observable, of, Subject, Subscription} from 'rxjs
 // import {getDownloadURL} from "@angular/fire/storage";
 // import {firebaseApp$} from "@angular/fire/app";
 import Reference from 'firebase/compat/index';
+import FullMetadata from 'firebase/compat/index';
 
-import {catchError, switchMap} from 'rxjs/operators';
+import {catchError, concatMap, map, mergeAll, switchMap} from 'rxjs/operators';
 // import {NativeAudio} from '@ionic-native/native-audio/ngx';
 import {Entry, File, FileEntry} from '@awesome-cordova-plugins/file/ngx';
 import {Media, MEDIA_STATUS, MediaObject} from '@awesome-cordova-plugins/media/ngx';
@@ -25,6 +26,9 @@ interface AudioFile {
   audioObject?: MediaObject;
   audioSub?: Subscription;
   audioIntStatus?: BehaviorSubject<MEDIA_STATUS>;
+  remoteMetadata_?: Subscription;
+  // @ts-ignore
+  remoteMetadata?: FullMetadata;
 }
 
 
@@ -60,6 +64,8 @@ export class FolderPage implements OnInit {
       console.log('platform ready');
       this.getRemoteAvailableAudios()
         .pipe(switchMap(() => this.getLocalAvailableAudios()))
+        .pipe(switchMap(() => this.availableAudioFiles.getValue()))
+        .pipe(switchMap((file) => this.setAudioFileMetadata(file)))
         .subscribe(value => {
           console.log('files ready', this.availableAudioFiles.getValue());
         }, (error) => {
@@ -67,6 +73,26 @@ export class FolderPage implements OnInit {
         });
 
     });
+  }
+
+  onFileSelected(event){
+    const file = event.target.files[0];
+    console.log(file);
+    const filePath = FolderPage.FIREBASE_FOLDER_AUDIOS+'/'+file.name;
+    const ref = this.fbStorage.ref(filePath);
+    // const task = ref.put(file,{customMetadata:{label:'random song'}});
+    // from(task).subscribe(x=>{
+    //   console.log(x.state);
+    //   console.log(x.totalBytes);
+    //   console.log(x.bytesTransferred);
+    //   console.log(x.metadata);
+    //   console.log(x.task);
+    //
+    // },(error)=>{
+    //   console.error(error);
+    // },()=>{
+    //   console.log('done uploading');
+    // });
   }
 
 
@@ -84,14 +110,34 @@ export class FolderPage implements OnInit {
       });
   }
 
+  public setAudioFileMetadata(file: AudioFile): Observable<void>{
+    // eslint-disable-next-line no-underscore-dangle
+    file.remoteMetadata_=from(file.remoteRef.getMetadata())
+      .subscribe(meta=>{
+        file.remoteMetadata=meta;
+      },(err)=>{
+        console.error('meta for file '+file.remoteRef.name+' failed. '+err);
+      },()=>{
+        console.log('meta for file '+file.remoteRef.name+' was set');
+      });
+    return of();
+  }
+
+  public showFileLabel(file: AudioFile): string {
+    console.log('called showFileLabel');
+    if(!file.remoteMetadata){
+      return '';
+    }
+    const val=file.remoteMetadata?.customMetadata?.label;
+    return !!val?'"'+val+'"':'';
+  }
+
   private getRemoteAvailableAudios(): Observable<AudioFile[]> {
     const fbStorageRef = this.fbStorage.ref(FolderPage.FIREBASE_FOLDER_AUDIOS);
-    // @ts-ignore
-    return fbStorageRef.list().pipe(switchMap((value, index) => {
+    return fbStorageRef.list().pipe(switchMap((value) => {
       console.log('received list', value);
       const res: AudioFile[] = [];
       for (const item of value.items) {
-        console.log(item);
         const newAudioItem: AudioFile = {
           remoteRef: item,
           localRef: null,
@@ -99,7 +145,9 @@ export class FolderPage implements OnInit {
           audioStatus$: null,
           audioObject: null,
           audioSub: null,
-          audioIntStatus: new BehaviorSubject(MEDIA_STATUS.NONE)
+          audioIntStatus: new BehaviorSubject(MEDIA_STATUS.NONE),
+          remoteMetadata_: null,
+          remoteMetadata: null
         };
         res.push(newAudioItem);
       }
@@ -220,7 +268,7 @@ export class FolderPage implements OnInit {
     return file.audioIntStatus.getValue();
   }
 
-  public onShare(selectedFile: AudioFile) {
+  private onShare(selectedFile: AudioFile) {
     // this.file.read
     // from(this.file.copyFile(file.localRef.name, this.file.externalDataDirectory, file.localRef.name, this.file.externalCacheDirectory))
     return from(Share.share({
@@ -235,6 +283,10 @@ export class FolderPage implements OnInit {
     });
 
   }
+
+
+
+
 
 
 }
