@@ -1,10 +1,10 @@
-import {ChangeDetectorRef, Component, OnInit} from '@angular/core';
+import {ChangeDetectorRef, Component, OnInit, ViewChild} from '@angular/core';
 import {AngularFireStorage} from '@angular/fire/compat/storage';
 import {ActivatedRoute} from '@angular/router';
 // import { FileEntry} from '@awesome-cordova-plugins/file/ngx';
-import {Platform} from '@ionic/angular';
+import {IonModal, Platform} from '@ionic/angular';
 import {HttpClient} from '@angular/common/http';
-import {BehaviorSubject, from, Observable, of, Subject, Subscription} from 'rxjs';
+import {BehaviorSubject, from, Observable, of, Subject, Subscription, throwError} from 'rxjs';
 // import {getDownloadURL} from "@angular/fire/storage";
 // import {firebaseApp$} from "@angular/fire/app";
 import Reference from 'firebase/compat/index';
@@ -38,16 +38,20 @@ interface AudioFile {
   styleUrls: ['./folder.page.scss'],
 })
 export class FolderPage implements OnInit {
-  // this will also serve as the local dir name
-  // eslint-disable-next-line @typescript-eslint/naming-convention
-  private static FIREBASE_FOLDER_AUDIOS = 'audios';
+  @ViewChild(IonModal) modal: IonModal;
+  @ViewChild('uploadButtonInput') uploadButtonInput: HTMLInputElement;
+
+
   public folder: string;
   public fileDir = 'podcast';
   // controls loading state of UI
   public loadingAudioFiles: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(true);
 
   public availableAudioFiles: BehaviorSubject<AudioFile[]> = new BehaviorSubject([]);
-
+  // this will also serve as the local dir name
+  // eslint-disable-next-line @typescript-eslint/naming-convention,@typescript-eslint/member-ordering
+  private static FIREBASE_FOLDER_AUDIOS = 'audios';
+  private uploadInProgress = false;
 
   constructor(private http: HttpClient,
               private activatedRoute: ActivatedRoute,
@@ -75,12 +79,37 @@ export class FolderPage implements OnInit {
     });
   }
 
-  onFileSelected(event){
-    const file = event.target.files[0];
-    console.log(file);
-    const filePath = FolderPage.FIREBASE_FOLDER_AUDIOS+'/'+file.name;
-    const ref = this.fbStorage.ref(filePath);
-    // const task = ref.put(file,{customMetadata:{label:'random song'}});
+  onFileSelected($event){
+    console.log('triggered event');
+    from(this.modal.present())
+      .pipe(switchMap((x=> of(this.uploadInProgress = true))))
+      .pipe(switchMap((x)=>from(this.modal.onDidDismiss())))
+      .pipe(switchMap((x)=>{
+        if (x.role==='cancel' || !x.data){
+          return throwError(new Error('user canceled modal'));
+        }
+        const file = $event.target.files[0];
+        console.log(file);
+        const fileName=x.data?.name || file.name;
+        const filePath = FolderPage.FIREBASE_FOLDER_AUDIOS+'/'+fileName;
+        const ref = this.fbStorage.ref(filePath);
+        const label=x.data?.label || '';
+        return from(ref.put(file,{customMetadata:{label}}));
+      }))
+      .pipe(switchMap((y,z)=>from(y.task)))
+      .subscribe(x=>{
+        console.log(x.state);
+      },(err)=>{
+        this.uploadInProgress=false;
+        console.error('eroare in chain');
+        console.error(err);
+      },()=>{
+        console.log('completed');
+        this.uploadInProgress=false;
+        // this.uploadButtonInput.l
+      });
+
+
     // from(task).subscribe(x=>{
     //   console.log(x.state);
     //   console.log(x.totalBytes);
@@ -93,6 +122,10 @@ export class FolderPage implements OnInit {
     // },()=>{
     //   console.log('done uploading');
     // });
+  }
+
+  public test(){
+    console.log('mopuse donw');
   }
 
 
