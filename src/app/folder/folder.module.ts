@@ -11,6 +11,9 @@ import { HttpClientModule} from '@angular/common/http';
 // import {NativeAudio} from '@ionic-native/native-audio/ngx';
 import {File} from '@awesome-cordova-plugins/file/ngx';
 import {Media} from '@awesome-cordova-plugins/media/ngx';
+import {
+  FileUploadConfirmComponentComponent
+} from './file-upload-confirm-component/file-upload-confirm-component.component';
 
 
 
@@ -30,6 +33,6 @@ import {Media} from '@awesome-cordova-plugins/media/ngx';
     FolderPageRoutingModule,
     AngularFireStorageModule
   ],
-  declarations: [FolderPage]
+  declarations: [FolderPage,FileUploadConfirmComponentComponent]
 })
 export class FolderPageModule {}

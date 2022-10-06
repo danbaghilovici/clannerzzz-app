@@ -1,8 +1,8 @@
-import {ChangeDetectorRef, Component, OnInit, ViewChild} from '@angular/core';
+import {ChangeDetectorRef, Component, ElementRef, OnInit, ViewChild} from '@angular/core';
 import {AngularFireStorage} from '@angular/fire/compat/storage';
 import {ActivatedRoute} from '@angular/router';
 // import { FileEntry} from '@awesome-cordova-plugins/file/ngx';
-import {IonModal, Platform} from '@ionic/angular';
+import {IonModal, ModalController, Platform, ToastController} from '@ionic/angular';
 import {HttpClient} from '@angular/common/http';
 import {BehaviorSubject, from, Observable, of, Subject, Subscription, throwError} from 'rxjs';
 // import {getDownloadURL} from "@angular/fire/storage";
@@ -15,6 +15,9 @@ import {catchError, concatMap, map, mergeAll, switchMap} from 'rxjs/operators';
 import {Entry, File, FileEntry} from '@awesome-cordova-plugins/file/ngx';
 import {Media, MEDIA_STATUS, MediaObject} from '@awesome-cordova-plugins/media/ngx';
 import {Share} from '@capacitor/share';
+import {
+  FileUploadConfirmComponentComponent
+} from './file-upload-confirm-component/file-upload-confirm-component.component';
 
 // @ts-ignore
 interface AudioFile {
@@ -39,7 +42,7 @@ interface AudioFile {
 })
 export class FolderPage implements OnInit {
   @ViewChild(IonModal) modal: IonModal;
-  @ViewChild('uploadButtonInput') uploadButtonInput: HTMLInputElement;
+  @ViewChild('uploadButtonInput') uploadButtonInput: ElementRef;
 
 
   public folder: string;
@@ -51,7 +54,7 @@ export class FolderPage implements OnInit {
   // this will also serve as the local dir name
   // eslint-disable-next-line @typescript-eslint/naming-convention,@typescript-eslint/member-ordering
   private static FIREBASE_FOLDER_AUDIOS = 'audios';
-  private uploadInProgress = false;
+  public uploadInProgress: BehaviorSubject<boolean> = new BehaviorSubject<boolean>(false);
 
   constructor(private http: HttpClient,
               private activatedRoute: ActivatedRoute,
@@ -59,7 +62,9 @@ export class FolderPage implements OnInit {
               private platform: Platform,
               private media: Media,
               private file: File,
-              private changeRef: ChangeDetectorRef) {
+              private changeRef: ChangeDetectorRef,
+              private modalCtrl: ModalController,
+              private toastController: ToastController) {
   }
 
   ngOnInit() {
@@ -81,11 +86,20 @@ export class FolderPage implements OnInit {
 
   onFileSelected($event){
     console.log('triggered event');
-    from(this.modal.present())
-      .pipe(switchMap((x=> of(this.uploadInProgress = true))))
-      .pipe(switchMap((x)=>from(this.modal.onDidDismiss())))
+
+    from(this.modalCtrl.create(
+      {
+        component:FileUploadConfirmComponentComponent,
+        componentProps:{fileName:$event.target.files[0].name}}))
+      .pipe(switchMap((x)=>from(x.present())))
+      .pipe(switchMap((x=> {
+        this.uploadInProgress.next(true);
+        return of('');
+      })))
+      .pipe(switchMap((x)=>from(this.modalCtrl.getTop())))
+      .pipe(switchMap((x)=>from(x.onDidDismiss())))
       .pipe(switchMap((x)=>{
-        if (x.role==='cancel' || !x.data){
+        if (x.role==='CANCEL' || !x.data){
           return throwError(new Error('user canceled modal'));
         }
         const file = $event.target.files[0];
@@ -94,18 +108,21 @@ export class FolderPage implements OnInit {
         const filePath = FolderPage.FIREBASE_FOLDER_AUDIOS+'/'+fileName;
         const ref = this.fbStorage.ref(filePath);
         const label=x.data?.label || '';
+        console.log('label',label);
         return from(ref.put(file,{customMetadata:{label}}));
       }))
       .pipe(switchMap((y,z)=>from(y.task)))
       .subscribe(x=>{
         console.log(x.state);
       },(err)=>{
-        this.uploadInProgress=false;
+        this.uploadInProgress.next(false);
         console.error('eroare in chain');
         console.error(err);
+        this.uploadButtonInput.nativeElement.value='';
       },()=>{
         console.log('completed');
-        this.uploadInProgress=false;
+        this.uploadInProgress.next(false);
+        this.uploadButtonInput.nativeElement.value='';
         // this.uploadButtonInput.l
       });
 
@@ -126,6 +143,16 @@ export class FolderPage implements OnInit {
 
   public test(){
     console.log('mopuse donw');
+  }
+
+  onFabButtonClicked(){
+    if (this.uploadInProgress.getValue()){
+      return from(this.toastController.create({message: 'An upload is in progress!',duration:2000,position:'bottom'}))
+        .subscribe(x=>{
+          x.present();
+        });
+    }
+    this.uploadButtonInput.nativeElement.click();
   }
 
 
@@ -157,7 +184,7 @@ export class FolderPage implements OnInit {
   }
 
   public showFileLabel(file: AudioFile): string {
-    console.log('called showFileLabel');
+    // console.log('called showFileLabel');
     if(!file.remoteMetadata){
       return '';
     }
